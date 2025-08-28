@@ -11,7 +11,6 @@ keywords = ["ergo", "blockchain", "node-interface", "dApp"]
 categories = ["cryptography::cryptocurrencies"]
 
 [dependencies]
-json = "0.12.4"
 openssl = { version = "0.10", features = ["vendored"] }
 reqwest = { version = "0.11.4", features = ["blocking"] }
 serde = "1.0"

@@ -1,6 +1,5 @@
 use crate::node_interface::{NodeError, NodeInterface, Result};
-use crate::JsonString;
-use json::JsonValue;
+use crate::{JsonString, JsonValue};
 use reqwest::blocking::{RequestBuilder, Response};
 use reqwest::header::{HeaderValue, CONTENT_TYPE};
 
@@ -52,7 +51,8 @@ impl NodeInterface {
                 "Node Response Not Parseable into Text.".to_string(),
             )
         })?;
-        let json = json::parse(&text).map_err(|_| NodeError::FailedParsingNodeResponse(text))?;
+        let json =
+            serde_json::from_str(&text).map_err(|_| NodeError::FailedParsingNodeResponse(text))?;
         Ok(json)
     }
 

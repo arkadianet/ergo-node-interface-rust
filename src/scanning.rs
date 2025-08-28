@@ -5,8 +5,7 @@ use crate::node_interface::NodeInterface;
 pub use crate::node_interface::{NodeError, Result};
 use crate::ScanId;
 use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
-use serde_json::{from_str, Value};
-use serde_json::{json, to_string_pretty};
+use serde_json::{from_str, json, to_string_pretty, Value};
 
 /// Scanning-related endpoints
 impl NodeInterface {

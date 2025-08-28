@@ -1,14 +1,13 @@
 use std::convert::TryFrom;
 
 use crate::node_interface::{NodeError, NodeInterface, Result};
-use crate::JsonString;
+use crate::{JsonString, JsonValue};
 use ergo_lib::chain::transaction::unsigned::UnsignedTransaction;
 use ergo_lib::chain::transaction::{Transaction, TxId};
 use ergo_lib::ergo_chain_types::Digest32;
 use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
 use ergo_lib::ergotree_ir::serialization::{SigmaSerializable, SigmaSerializationError};
 use ergo_lib::wallet::signing::TransactionContext;
-use json::JsonValue;
 use serde_json::json;
 
 impl NodeInterface {
@@ -24,14 +23,15 @@ impl NodeInterface {
     /// Sign an Unsigned Transaction which is formatted in JSON
     pub fn sign_json_transaction(&self, unsigned_tx_string: &JsonString) -> Result<JsonValue> {
         let endpoint = "/wallet/transaction/sign";
-        let unsigned_tx_json = json::parse(unsigned_tx_string)
+        let unsigned_tx_json: JsonValue = serde_json::from_str(unsigned_tx_string)
             .map_err(|_| NodeError::FailedParsingNodeResponse(unsigned_tx_string.to_string()))?;
 
-        let prepared_body = object! {
-            tx: unsigned_tx_json
-        };
+        let prepared_body = json!({
+            "tx": unsigned_tx_json
+        });
 
-        let res_json = self.use_json_endpoint_and_check_errors(endpoint, &prepared_body.dump())?;
+        let res_json =
+            self.use_json_endpoint_and_check_errors(endpoint, &prepared_body.to_string())?;
 
         Ok(res_json)
     }
@@ -43,7 +43,8 @@ impl NodeInterface {
         unsigned_tx_string: &JsonString,
     ) -> Result<TxId> {
         let signed_tx = self.sign_json_transaction(unsigned_tx_string)?;
-        let signed_tx_json = json::stringify(signed_tx);
+        let signed_tx_json = serde_json::to_string(&signed_tx)
+            .map_err(|_| NodeError::Other("Failed Converting `JsonValue` to string".to_string()))?;
 
         self.submit_json_transaction(&signed_tx_json)
     }
@@ -111,8 +112,8 @@ impl NodeInterface {
         let json_signed_tx =
             self.use_json_endpoint_and_check_errors(endpoint, &prepared_body.to_string())?;
 
-        serde_json::from_str(&json_signed_tx.dump())
-            .map_err(|_| NodeError::Other("Failed Converting `Transaction` to json".to_string()))
+        serde_json::from_value(json_signed_tx)
+            .map_err(|_| NodeError::Other("Failed Converting `Transaction` from json".to_string()))
     }
 
     /// Sign an `UnsignedTransaction` and then submit it to the mempool.
@@ -221,8 +222,15 @@ impl NodeInterface {
     }
 }
 
-fn parse_tx_id_unsafe(mut res_json: JsonValue) -> TxId {
+fn parse_tx_id_unsafe(res_json: JsonValue) -> TxId {
     // If tx is valid and is posted, return just the tx id
-    let tx_id_str = res_json.take_string().unwrap();
+    let tx_id_str = match res_json.as_str() {
+        Some(s) => s.to_string(),
+        None => {
+            // Fallback: if it's not a string, convert the whole value to string and remove quotes
+            let full_string = res_json.to_string();
+            full_string.trim_matches('"').to_string()
+        }
+    };
     TxId(Digest32::try_from(tx_id_str).unwrap())
 }

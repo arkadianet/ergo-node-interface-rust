@@ -1,6 +1,6 @@
 //! The `NodeInterface` struct is defined which allows for interacting with an Ergo Node via Rust.
 
-use crate::{BlockHeight, NanoErg, P2PKAddressString, P2SAddressString};
+use crate::{BlockHeight, JsonValue, NanoErg, P2PKAddressString, P2SAddressString};
 use ergo_lib::chain::ergo_state_context::{ErgoStateContext, Headers};
 use ergo_lib::chain::parameters::Parameters;
 use ergo_lib::ergo_chain_types::{Header, PreHeader};
@@ -262,7 +262,9 @@ impl NodeInterface {
         if let Ok(ergo_box) = from_str(&res_json.to_string()) {
             Ok(ergo_box)
         } else {
-            Err(NodeError::FailedParsingBox(res_json.pretty(2)))
+            Err(NodeError::FailedParsingBox(
+                serde_json::to_string_pretty(&res_json).unwrap_or_else(|_| res_json.to_string()),
+            ))
         }
     }
 
@@ -275,12 +277,14 @@ impl NodeInterface {
         if let Ok(ergo_box) = from_str(&res_json.to_string()) {
             Ok(ergo_box)
         } else {
-            Err(NodeError::FailedParsingBox(res_json.pretty(2)))
+            Err(NodeError::FailedParsingBox(
+                serde_json::to_string_pretty(&res_json).unwrap_or_else(|_| res_json.to_string()),
+            ))
         }
     }
 
     /// Given a transaction id return the given transaction from the blockchain
-    pub fn blockchain_transaction_from_id(&self, tx_id: &String) -> Result<json::JsonValue> {
+    pub fn blockchain_transaction_from_id(&self, tx_id: &String) -> Result<JsonValue> {
         let endpoint = "/blockchain/transaction/byId/".to_string() + tx_id;
         let res = self.send_get_req(&endpoint);
         let res_json = self.parse_response_to_json(res)?;
@@ -326,7 +330,7 @@ impl NodeInterface {
     }
 
     /// Get the full node info including blockchain parameters
-    pub fn node_info(&self) -> Result<json::JsonValue> {
+    pub fn node_info(&self) -> Result<JsonValue> {
         let endpoint = "/info";
         let res = self.send_get_req(endpoint);
         let res_json = self.parse_response_to_json(res)?;

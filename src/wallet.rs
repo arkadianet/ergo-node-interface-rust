@@ -160,16 +160,18 @@ impl NodeInterface {
         if let Ok(wallet_status) = from_str(&res_json.to_string()) {
             Ok(wallet_status)
         } else {
-            Err(NodeError::FailedParsingWalletStatus(res_json.pretty(2)))
+            Err(NodeError::FailedParsingWalletStatus(
+                serde_json::to_string_pretty(&res_json).unwrap_or_else(|_| res_json.to_string()),
+            ))
         }
     }
 
     /// Unlock wallet
     pub fn wallet_unlock(&self, password: &str) -> Result<bool> {
         let endpoint = "/wallet/unlock";
-        let body = object! {
-            pass: password,
-        };
+        let body = serde_json::json!({
+            "pass": password
+        });
 
         let res = self.send_post_req(endpoint, body.to_string())?;
 
