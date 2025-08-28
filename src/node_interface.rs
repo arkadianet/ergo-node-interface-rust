@@ -2,6 +2,7 @@
 
 use crate::{BlockHeight, NanoErg, P2PKAddressString, P2SAddressString};
 use ergo_lib::chain::ergo_state_context::{ErgoStateContext, Headers};
+use ergo_lib::chain::parameters::Parameters;
 use ergo_lib::ergo_chain_types::{Header, PreHeader};
 use ergo_lib::ergotree_ir::chain::ergo_box::ErgoBox;
 use ergo_lib::ergotree_ir::chain::token::TokenId;
@@ -281,7 +282,7 @@ impl NodeInterface {
         let ten_headers: [Header; 10] = vec_headers.try_into().unwrap();
         let headers = Headers::from(ten_headers);
         let pre_header = PreHeader::from(headers.first().unwrap().clone());
-        let state_context = ErgoStateContext::new(pre_header, headers);
+        let state_context = ErgoStateContext::new(pre_header, headers, Parameters::default());
 
         Ok(state_context)
     }
