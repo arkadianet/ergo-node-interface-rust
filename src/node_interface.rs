@@ -275,6 +275,19 @@ impl NodeInterface {
         }
     }
 
+    /// Get the full node info including blockchain parameters
+    pub fn node_info(&self) -> Result<json::JsonValue> {
+        let endpoint = "/info";
+        let res = self.send_get_req(endpoint);
+        let res_json = self.parse_response_to_json(res)?;
+
+        if res_json["fullHeight"].is_null() {
+            Err(NodeError::NodeSyncing)
+        } else {
+            Ok(res_json)
+        }
+    }
+
     /// Get the current state context of the blockchain
     pub fn get_state_context(&self) -> Result<ErgoStateContext> {
         let mut vec_headers = self.get_last_block_headers(10)?;

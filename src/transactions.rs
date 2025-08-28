@@ -155,6 +155,61 @@ impl NodeInterface {
         let fee = res_json?.as_u64().unwrap();
         Ok(fee)
     }
+
+    /// Checks a Signed Transaction provided as input as JSON
+    /// without submitting it to the mempool. Returns transaction ID if valid.
+    pub fn check_json_transaction(&self, signed_tx_json: &JsonString) -> Result<TxId> {
+        let endpoint = "/transactions/check";
+        let res_json = self.use_json_endpoint_and_check_errors(endpoint, signed_tx_json)?;
+        let tx_id = parse_tx_id_unsafe(res_json);
+        Ok(tx_id)
+    }
+
+    /// Checks a Signed `Transaction` provided as input
+    /// without submitting it to the mempool. Returns transaction ID if valid.
+    pub fn check_transaction(&self, signed_tx: &Transaction) -> Result<TxId> {
+        let signed_tx_json = &serde_json::to_string(&signed_tx)
+            .map_err(|_| NodeError::Other("Failed Converting `Transaction` to json".to_string()))?;
+        self.check_json_transaction(signed_tx_json)
+    }
+
+    /// Checks a transaction provided as hex-encoded bytes
+    /// without submitting it to the mempool. Returns transaction ID if valid.
+    pub fn check_transaction_bytes(&self, tx_bytes_hex: &str) -> Result<TxId> {
+        let endpoint = "/transactions/checkBytes";
+        let res_json =
+            self.use_json_endpoint_and_check_errors(endpoint, &tx_bytes_hex.to_string())?;
+        let tx_id = parse_tx_id_unsafe(res_json);
+        Ok(tx_id)
+    }
+
+    /// Submits a transaction provided as hex-encoded bytes
+    /// to the Ergo Blockchain mempool.
+    pub fn submit_transaction_bytes(&self, tx_bytes_hex: &str) -> Result<TxId> {
+        let endpoint = "/transactions/bytes";
+        let res_json =
+            self.use_json_endpoint_and_check_errors(endpoint, &tx_bytes_hex.to_string())?;
+        let tx_id = parse_tx_id_unsafe(res_json);
+        Ok(tx_id)
+    }
+
+    /// Gets unconfirmed transactions from the mempool.
+    pub fn mempool_transactions(&self) -> Result<Vec<JsonValue>> {
+        let endpoint = "/transactions/unconfirmed";
+        let res = self.send_get_req(endpoint);
+        let res_json = self.parse_response_to_json(res)?;
+
+        let mut transactions = vec![];
+        for i in 0.. {
+            let tx_json = &res_json[i];
+            if tx_json.is_null() {
+                break;
+            } else {
+                transactions.push(tx_json.clone());
+            }
+        }
+        Ok(transactions)
+    }
 }
 
 fn parse_tx_id_unsafe(mut res_json: JsonValue) -> TxId {
