@@ -210,6 +210,15 @@ impl NodeInterface {
         }
         Ok(transactions)
     }
+
+    /// Gets a specific unconfirmed transaction from the mempool by transaction ID.
+    pub fn unconfirmed_transaction_by_id(&self, tx_id: &str) -> Result<JsonValue> {
+        let endpoint = format!("/transactions/unconfirmed/byTransactionId/{}", tx_id);
+        let res = self.send_get_req(&endpoint);
+        let res_json = self.parse_response_to_json(res)?;
+
+        Ok(res_json)
+    }
 }
 
 fn parse_tx_id_unsafe(mut res_json: JsonValue) -> TxId {

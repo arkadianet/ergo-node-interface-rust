@@ -184,6 +184,15 @@ impl NodeInterface {
         Ok(res_json["bytes"].to_string())
     }
 
+    /// Given a hex-encoded ErgoTree, convert it to an Ergo address
+    pub fn ergo_tree_to_address(&self, ergo_tree_hex: &String) -> Result<String> {
+        let endpoint = "/utils/ergoTreeToAddress";
+        let res = self.send_post_req(endpoint, ergo_tree_hex.clone());
+        let res_json = self.parse_response_to_json(res)?;
+
+        Ok(res_json["address"].to_string())
+    }
+
     /// Given an Ergo P2PK Address, convert it to a raw hex-encoded EC point
     pub fn p2pk_to_raw(&self, address: &P2PKAddressString) -> Result<String> {
         let endpoint = "/utils/addressToRaw/".to_string() + address;
@@ -255,6 +264,47 @@ impl NodeInterface {
         } else {
             Err(NodeError::FailedParsingBox(res_json.pretty(2)))
         }
+    }
+
+    /// Given a box id return the given box from the blockchain
+    pub fn blockchain_box_from_id(&self, box_id: &String) -> Result<ErgoBox> {
+        let endpoint = "/blockchain/box/byId/".to_string() + box_id;
+        let res = self.send_get_req(&endpoint);
+        let res_json = self.parse_response_to_json(res)?;
+
+        if let Ok(ergo_box) = from_str(&res_json.to_string()) {
+            Ok(ergo_box)
+        } else {
+            Err(NodeError::FailedParsingBox(res_json.pretty(2)))
+        }
+    }
+
+    /// Given a transaction id return the given transaction from the blockchain
+    pub fn blockchain_transaction_from_id(&self, tx_id: &String) -> Result<json::JsonValue> {
+        let endpoint = "/blockchain/transaction/byId/".to_string() + tx_id;
+        let res = self.send_get_req(&endpoint);
+        let res_json = self.parse_response_to_json(res)?;
+
+        Ok(res_json)
+    }
+
+    /// Acquires unspent boxes from the blockchain by ErgoTree hex
+    pub fn unspent_boxes_by_ergo_tree(&self, ergo_tree_hex: &String) -> Result<Vec<ErgoBox>> {
+        let endpoint = "/blockchain/box/unspent/byErgoTree";
+        let res = self.send_post_req(endpoint, ergo_tree_hex.clone());
+        let res_json = self.parse_response_to_json(res)?;
+
+        let mut box_list = vec![];
+
+        for i in 0.. {
+            let box_json = &res_json[i];
+            if box_json.is_null() {
+                break;
+            } else if let Ok(ergo_box) = from_str(&box_json.to_string()) {
+                box_list.push(ergo_box);
+            }
+        }
+        Ok(box_list)
     }
 
     /// Get the current block height of the blockchain
