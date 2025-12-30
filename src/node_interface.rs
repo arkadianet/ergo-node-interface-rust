@@ -292,10 +292,25 @@ impl NodeInterface {
         Ok(res_json)
     }
 
-    /// Acquires unspent boxes from the blockchain by ErgoTree hex
-    pub fn unspent_boxes_by_ergo_tree(&self, ergo_tree_hex: &String) -> Result<Vec<ErgoBox>> {
-        let endpoint = "/blockchain/box/unspent/byErgoTree";
-        let res = self.send_post_req(endpoint, ergo_tree_hex.clone());
+    /// Get token metadata from the blockchain
+    pub fn get_token_info(&self, token_id: &str) -> Result<JsonValue> {
+        let endpoint = format!("/blockchain/token/byId/{}", token_id);
+        let res = self.send_get_req(&endpoint);
+        let res_json = self.parse_response_to_json(res)?;
+        Ok(res_json)
+    }
+
+    /// Acquires unspent boxes from the blockchain by ErgoTree hex.
+    ///
+    /// `limit` controls max boxes returned (defaults to 100, node default is 5).
+    pub fn unspent_boxes_by_ergo_tree(
+        &self,
+        ergo_tree_hex: &String,
+        limit: Option<u32>,
+    ) -> Result<Vec<ErgoBox>> {
+        let limit = limit.unwrap_or(100);
+        let endpoint = format!("/blockchain/box/unspent/byErgoTree?limit={}", limit);
+        let res = self.send_post_req(&endpoint, ergo_tree_hex.clone());
         let res_json = self.parse_response_to_json(res)?;
 
         let mut box_list = vec![];
