@@ -13,13 +13,12 @@ impl NodeInterface {
         let endpoint = "/wallet/addresses";
         let res = self.send_get_req(endpoint).await?;
 
+        let text = res.text().await.map_err(|_| {
+            NodeError::FailedParsingNodeResponse("Failed to get addresses from wallet".to_string())
+        })?;
+
         let mut addresses: Vec<String> = vec![];
-        for segment in res
-            .text()
-            .await
-            .expect("Failed to get addresses from wallet.")
-            .split('\"')
-        {
+        for segment in text.split('\"') {
             let seg = segment.trim();
             if is_mainnet_address(seg) || is_testnet_address(seg) {
                 addresses.push(seg.to_string());

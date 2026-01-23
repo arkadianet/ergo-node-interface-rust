@@ -61,7 +61,13 @@ impl NodeInterface {
         let signed_tx_json = &serde_json::to_string(&signed_tx)
             .map_err(|_| NodeError::Other("Failed Converting `Transaction` to json".to_string()))?;
         let tx_id = self.submit_json_transaction(signed_tx_json).await?;
-        assert_eq!(tx_id, signed_tx.id());
+        if tx_id != signed_tx.id() {
+            return Err(NodeError::Other(format!(
+                "Transaction ID mismatch: expected {}, got {}",
+                signed_tx.id(),
+                tx_id
+            )));
+        }
         Ok(tx_id)
     }
 
@@ -172,9 +178,10 @@ impl NodeInterface {
             bytes, wait_time
         );
         let res = self.send_get_req(&endpoint).await;
-        let res_json = self.parse_response_to_json(res).await;
-        let fee = res_json?.as_u64().unwrap();
-        Ok(fee)
+        let res_json = self.parse_response_to_json(res).await?;
+        res_json
+            .as_u64()
+            .ok_or_else(|| NodeError::FailedParsingNodeResponse(res_json.to_string()))
     }
 
     /// Checks a Signed Transaction provided as input as JSON

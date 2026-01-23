@@ -1,0 +1,16 @@
+# Cargo audit configuration
+# See: https://docs.rs/cargo-audit
+
+[advisories]
+# Advisory IDs to ignore (known issues we accept)
+ignore = [
+    # idna 0.2.3 - Punycode label parsing issue (RUSTSEC-2024-0421)
+    # Severity: Low - affects IDN/Punycode domain handling, not typical blockchain use
+    # Source: ergo-chain-types 0.15.0 pins url ~2.2, which depends on idna 0.2.3
+    # Resolution: Awaiting upstream ergo-lib update to unpin url dependency
+    "RUSTSEC-2024-0421",
+]
+
+[yanked]
+# Warn about yanked crates
+enabled = true

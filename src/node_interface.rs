@@ -314,10 +314,23 @@ impl NodeInterface {
     /// Get the current state context of the blockchain
     pub async fn get_state_context(&self) -> Result<ErgoStateContext> {
         let mut vec_headers = self.get_last_block_headers(10).await?;
+        if vec_headers.len() < 10 {
+            return Err(NodeError::Other(format!(
+                "Expected 10 block headers, got {}",
+                vec_headers.len()
+            )));
+        }
         vec_headers.reverse();
-        let ten_headers: [Header; 10] = vec_headers.try_into().unwrap();
+        let ten_headers: [Header; 10] = vec_headers
+            .try_into()
+            .map_err(|_| NodeError::Other("Failed to convert headers to array".to_string()))?;
         let headers = Headers::from(ten_headers);
-        let pre_header = PreHeader::from(headers.first().unwrap().clone());
+        let pre_header = PreHeader::from(
+            headers
+                .first()
+                .ok_or_else(|| NodeError::Other("Headers array is empty".to_string()))?
+                .clone(),
+        );
         let state_context = ErgoStateContext::new(pre_header, headers, Parameters::default());
 
         Ok(state_context)
@@ -528,8 +541,17 @@ impl NodeInterface {
     /// Returns inactive status on non-extraIndex nodes (including 404).
     pub async fn indexer_status(&self) -> Result<IndexerStatus> {
         let endpoint = "/blockchain/indexedHeight";
-        let res = self.send_get_req(endpoint).await;
-        let res_json = self.parse_response_to_json(res).await?;
+        let res = self.send_get_req(endpoint).await?;
+
+        // Handle 404 (extraIndex not enabled) before attempting JSON parse
+        if res.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(IndexerStatus {
+                is_active: false,
+                is_sync: false,
+            });
+        }
+
+        let res_json = self.parse_response_to_json(Ok(res)).await?;
 
         let error = res_json["error"].clone();
         if !error.is_null() {

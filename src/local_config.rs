@@ -4,7 +4,7 @@ use crate::node_interface::{NodeError, NodeInterface, Result};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
-use yaml_rust::{Yaml, YamlLoader};
+use yaml_rust2::{Yaml, YamlLoader};
 
 static BAREBONES_CONFIG_YAML: &str = r#"
 # IP Address of the node (default is local, edit if yours is different)
