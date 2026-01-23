@@ -15,6 +15,9 @@ node_port: "9053"
 node_api_key: "hello"
 "#;
 
+/// Default config path
+const DEFAULT_CONFIG_PATH: &str = "node-interface.yaml";
+
 /// A ease-of-use function which attempts to acquire a `NodeInterface`
 /// from a local file. If the file does not exist, it generates a new
 /// config file, tells the user to edit the config file, and then closes
@@ -39,12 +42,12 @@ pub fn acquire_node_interface_from_local_config() -> NodeInterface {
 
 /// Basic function to check if a local config currently exists
 pub fn does_local_config_exist() -> bool {
-    Path::new("node-interface.yaml").exists()
+    Path::new(DEFAULT_CONFIG_PATH).exists()
 }
 
 /// Create a new `node-interface.config` with the barebones yaml inside
 pub fn create_new_local_config_file() -> Result<()> {
-    let file_path = Path::new("node-interface.yaml");
+    let file_path = Path::new(DEFAULT_CONFIG_PATH);
     if !file_path.exists() {
         let mut file = File::create(file_path).map_err(|_| {
             NodeError::YamlError("Failed to create `node-interface.yaml` file".to_string())
@@ -55,32 +58,107 @@ pub fn create_new_local_config_file() -> Result<()> {
                     "Failed to write to local `node-interface.yaml` file".to_string(),
                 )
             })?;
+        return Ok(());
     }
     Err(NodeError::YamlError(
         "Local `node-interface.yaml` already exists.".to_string(),
     ))
 }
 
-/// Uses the config yaml provided to create a new `NodeInterface`
-pub fn new_interface_from_yaml(config: Yaml) -> Result<NodeInterface> {
-    let ip = config["node_ip"].as_str().ok_or_else(|| {
-        NodeError::YamlError("`node_ip` is not specified in the provided Yaml".to_string())
-    })?;
-    let port = config["node_port"].as_str().ok_or_else(|| {
-        NodeError::YamlError("`node_port` is not specified in the provided Yaml".to_string())
-    })?;
-    let api_key = config["node_api_key"].as_str().ok_or_else(|| {
-        NodeError::YamlError("`node_api_key` is not specified in the provided Yaml".to_string())
-    })?;
-    NodeInterface::new(api_key, ip, port)
+// ===== Helper functions =====
+
+fn load_yaml_from_file(path: &str) -> Result<Yaml> {
+    let contents = std::fs::read_to_string(path)
+        .map_err(|e| NodeError::YamlError(format!("Failed to read config file '{}': {}", path, e)))?;
+    parse_yaml(&contents)
 }
 
-/// Opens a local `node-interface.yaml` file and uses the
-/// data inside to create a `NodeInterface`
+fn parse_yaml(yaml_str: &str) -> Result<Yaml> {
+    let docs = YamlLoader::load_from_str(yaml_str)
+        .map_err(|e| NodeError::YamlError(format!("Failed to parse YAML: {}", e)))?;
+    if docs.is_empty() {
+        return Err(NodeError::YamlError("Empty YAML document".to_string()));
+    }
+    Ok(docs[0].clone())
+}
+
+fn parse_api_key(config: &Yaml) -> Result<String> {
+    config["node_api_key"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            NodeError::YamlError("`node_api_key` is not specified in the provided Yaml".to_string())
+        })
+}
+
+fn parse_ip(config: &Yaml) -> Result<String> {
+    config["node_ip"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            NodeError::YamlError("`node_ip` is not specified in the provided Yaml".to_string())
+        })
+}
+
+fn parse_port(config: &Yaml) -> Result<String> {
+    config["node_port"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            NodeError::YamlError("`node_port` is not specified in the provided Yaml".to_string())
+        })
+}
+
+// ===== YAML-based constructors =====
+
+/// Uses the config yaml to create a NodeInterface without probing.
+///
+/// Capability is unknown (None). Call `refresh_capabilities()` to probe,
+/// or use `new_interface_from_yaml_async()` for auto-detection.
+pub fn new_interface_from_yaml(config: Yaml) -> Result<NodeInterface> {
+    let api_key = parse_api_key(&config)?;
+    let ip = parse_ip(&config)?;
+    let port = parse_port(&config)?;
+    NodeInterface::new_without_probe(&api_key, &ip, &port)
+}
+
+/// Async version that probes for extraIndex capability.
+pub async fn new_interface_from_yaml_async(config: Yaml) -> Result<NodeInterface> {
+    let api_key = parse_api_key(&config)?;
+    let ip = parse_ip(&config)?;
+    let port = parse_port(&config)?;
+    NodeInterface::new(&api_key, &ip, &port).await
+}
+
+// ===== File path-based constructors =====
+
+/// Load config from specified file path and create NodeInterface without probing.
+/// Use this when you have a custom config location.
+pub fn new_interface_with_path(config_path: &str) -> Result<NodeInterface> {
+    let config = load_yaml_from_file(config_path)?;
+    new_interface_from_yaml(config)
+}
+
+/// Async: Load config from specified file path and create NodeInterface with probing.
+pub async fn new_interface_with_path_async(config_path: &str) -> Result<NodeInterface> {
+    let config = load_yaml_from_file(config_path)?;
+    new_interface_from_yaml_async(config).await
+}
+
+// ===== Default location constructors =====
+
+/// Load config from default location (`node-interface.yaml`) and create
+/// NodeInterface without probing.
+///
+/// Existing function - signature preserved for backward compatibility.
 pub fn new_interface_from_local_config() -> Result<NodeInterface> {
-    let yaml_str = std::fs::read_to_string("node-interface.yaml").map_err(|_| {
-        NodeError::YamlError("Failed to read local `node-interface.yaml` file".to_string())
-    })?;
-    let yaml = YamlLoader::load_from_str(&yaml_str).unwrap()[0].clone();
-    new_interface_from_yaml(yaml)
+    let config = load_yaml_from_file(DEFAULT_CONFIG_PATH)?;
+    new_interface_from_yaml(config)
+}
+
+/// Async: Load config from default location (`node-interface.yaml`) and create
+/// NodeInterface with probing for extraIndex capability.
+pub async fn new_interface_from_local_config_async() -> Result<NodeInterface> {
+    let config = load_yaml_from_file(DEFAULT_CONFIG_PATH)?;
+    new_interface_from_yaml_async(config).await
 }

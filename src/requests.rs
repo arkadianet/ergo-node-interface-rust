@@ -1,7 +1,7 @@
 use crate::node_interface::{NodeError, NodeInterface, Result};
 use crate::{JsonString, JsonValue};
-use reqwest::blocking::{RequestBuilder, Response};
 use reqwest::header::{HeaderValue, CONTENT_TYPE};
+use reqwest::{RequestBuilder, Response};
 
 impl NodeInterface {
     /// Builds a `HeaderValue` to use for requests with the api key specified
@@ -20,33 +20,33 @@ impl NodeInterface {
     }
 
     /// Sends a GET request to the Ergo node
-    pub fn send_get_req(&self, endpoint: &str) -> Result<Response> {
+    pub async fn send_get_req(&self, endpoint: &str) -> Result<Response> {
         let url = self
             .url
             .join(endpoint)
             .map_err(|e| NodeError::InvalidUrl(e.to_string()))?;
-        let client = reqwest::blocking::Client::new().get(url);
-        self.set_req_headers(client)
+        self.set_req_headers(self.client.get(url))
             .send()
+            .await
             .map_err(|_| NodeError::NodeUnreachable)
     }
 
     /// Sends a POST request to the Ergo node
-    pub fn send_post_req(&self, endpoint: &str, body: String) -> Result<Response> {
+    pub async fn send_post_req(&self, endpoint: &str, body: String) -> Result<Response> {
         let url = self
             .url
             .join(endpoint)
             .map_err(|e| NodeError::InvalidUrl(e.to_string()))?;
-        let client = reqwest::blocking::Client::new().post(url);
-        self.set_req_headers(client)
+        self.set_req_headers(self.client.post(url))
             .body(body)
             .send()
+            .await
             .map_err(|_| NodeError::NodeUnreachable)
     }
 
     /// Parses response from node into JSON
-    pub fn parse_response_to_json(&self, resp: Result<Response>) -> Result<JsonValue> {
-        let text = resp?.text().map_err(|_| {
+    pub async fn parse_response_to_json(&self, resp: Result<Response>) -> Result<JsonValue> {
+        let text = resp?.text().await.map_err(|_| {
             NodeError::FailedParsingNodeResponse(
                 "Node Response Not Parseable into Text.".to_string(),
             )
@@ -58,14 +58,14 @@ impl NodeInterface {
 
     /// General function for submitting a Json String body to an endpoint
     /// which also returns a `JsonValue` response.
-    pub fn use_json_endpoint_and_check_errors(
+    pub async fn use_json_endpoint_and_check_errors(
         &self,
         endpoint: &str,
         json_body: &JsonString,
     ) -> Result<JsonValue> {
-        let res = self.send_post_req(endpoint, json_body.to_string());
+        let res = self.send_post_req(endpoint, json_body.to_string()).await;
 
-        let res_json = self.parse_response_to_json(res)?;
+        let res_json = self.parse_response_to_json(res).await?;
         let error_details = res_json["detail"].to_string();
 
         // Check if send tx request failed and returned error json

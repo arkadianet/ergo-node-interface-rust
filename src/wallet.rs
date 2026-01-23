@@ -9,13 +9,14 @@ use serde_with::NoneAsEmptyString;
 
 impl NodeInterface {
     /// Get all addresses from the node wallet
-    pub fn wallet_addresses(&self) -> Result<Vec<P2PKAddressString>> {
+    pub async fn wallet_addresses(&self) -> Result<Vec<P2PKAddressString>> {
         let endpoint = "/wallet/addresses";
-        let res = self.send_get_req(endpoint)?;
+        let res = self.send_get_req(endpoint).await?;
 
         let mut addresses: Vec<String> = vec![];
         for segment in res
             .text()
+            .await
             .expect("Failed to get addresses from wallet.")
             .split('\"')
         {
@@ -31,10 +32,10 @@ impl NodeInterface {
     }
 
     /// Acquires unspent boxes from the node wallet
-    pub fn unspent_boxes(&self) -> Result<Vec<ErgoBox>> {
+    pub async fn unspent_boxes(&self) -> Result<Vec<ErgoBox>> {
         let endpoint = "/wallet/boxes/unspent?minConfirmations=0&minInclusionHeight=0";
-        let res = self.send_get_req(endpoint);
-        let res_json = self.parse_response_to_json(res)?;
+        let res = self.send_get_req(endpoint).await;
+        let res_json = self.parse_response_to_json(res).await?;
 
         let mut box_list = vec![];
 
@@ -51,8 +52,8 @@ impl NodeInterface {
 
     /// Returns unspent boxes from the node wallet ordered from highest to
     /// lowest nanoErgs value.
-    pub fn unspent_boxes_sorted(&self) -> Result<Vec<ErgoBox>> {
-        let mut boxes = self.unspent_boxes()?;
+    pub async fn unspent_boxes_sorted(&self) -> Result<Vec<ErgoBox>> {
+        let mut boxes = self.unspent_boxes().await?;
         boxes.sort_by(|a, b| b.value.as_u64().partial_cmp(a.value.as_u64()).unwrap());
 
         Ok(boxes)
@@ -62,16 +63,16 @@ impl NodeInterface {
     /// provided value `total` of nanoErgs.
     /// Note: This box selection strategy simply uses the largest
     /// value holding boxes from the user's wallet first.
-    pub fn unspent_boxes_with_min_total(&self, total: NanoErg) -> Result<Vec<ErgoBox>> {
-        self.consume_boxes_until_total(total, &self.unspent_boxes_sorted()?)
+    pub async fn unspent_boxes_with_min_total(&self, total: NanoErg) -> Result<Vec<ErgoBox>> {
+        self.consume_boxes_until_total(total, &self.unspent_boxes_sorted().await?)
     }
 
     /// Returns a list of unspent boxes which cover at least the
     /// provided value `total` of nanoErgs.
     /// Note: This box selection strategy simply uses the oldest unspent
     /// boxes from the user's full node wallet first.
-    pub fn unspent_boxes_with_min_total_by_age(&self, total: NanoErg) -> Result<Vec<ErgoBox>> {
-        self.consume_boxes_until_total(total, &self.unspent_boxes()?)
+    pub async fn unspent_boxes_with_min_total_by_age(&self, total: NanoErg) -> Result<Vec<ErgoBox>> {
+        self.consume_boxes_until_total(total, &self.unspent_boxes().await?)
     }
 
     /// Given a `Vec<ErgoBox>`, consume each ErgoBox into a new list until
@@ -96,8 +97,8 @@ impl NodeInterface {
 
     /// Acquires the unspent box with the highest value of Ergs inside
     /// from the wallet
-    pub fn highest_value_unspent_box(&self) -> Result<ErgoBox> {
-        let boxes = self.unspent_boxes()?;
+    pub async fn highest_value_unspent_box(&self) -> Result<ErgoBox> {
+        let boxes = self.unspent_boxes().await?;
 
         // Find the highest value amount held in a single box in the wallet
         let highest_value = boxes.iter().fold(0, |acc, b| {
@@ -118,27 +119,30 @@ impl NodeInterface {
 
     /// Acquires the unspent box with the highest value of Ergs inside
     /// from the wallet and serializes it
-    pub fn serialized_highest_value_unspent_box(&self) -> Result<String> {
-        let ergs_box_id: String = self.highest_value_unspent_box()?.box_id().into();
-        self.serialized_box_from_id(&ergs_box_id)
+    pub async fn serialized_highest_value_unspent_box(&self) -> Result<String> {
+        let ergs_box_id: String = self.highest_value_unspent_box().await?.box_id().into();
+        self.serialized_box_from_id(&ergs_box_id).await
     }
 
     /// Acquires unspent boxes which cover `total` amount of nanoErgs
     /// from the wallet and serializes the boxes
-    pub fn serialized_unspent_boxes_with_min_total(&self, total: NanoErg) -> Result<Vec<String>> {
-        let boxes = self.unspent_boxes_with_min_total(total)?;
+    pub async fn serialized_unspent_boxes_with_min_total(
+        &self,
+        total: NanoErg,
+    ) -> Result<Vec<String>> {
+        let boxes = self.unspent_boxes_with_min_total(total).await?;
         let mut serialized_boxes = vec![];
         for b in boxes {
-            serialized_boxes.push(self.serialized_box_from_id(&b.box_id().into())?);
+            serialized_boxes.push(self.serialized_box_from_id(&b.box_id().into()).await?);
         }
         Ok(serialized_boxes)
     }
 
     /// Get the current nanoErgs balance held in the Ergo Node wallet
-    pub fn wallet_nano_ergs_balance(&self) -> Result<NanoErg> {
+    pub async fn wallet_nano_ergs_balance(&self) -> Result<NanoErg> {
         let endpoint = "/wallet/balances";
-        let res = self.send_get_req(endpoint);
-        let res_json = self.parse_response_to_json(res)?;
+        let res = self.send_get_req(endpoint).await;
+        let res_json = self.parse_response_to_json(res).await?;
 
         let balance = res_json["balance"].clone();
 
@@ -152,10 +156,10 @@ impl NodeInterface {
     }
 
     /// Get wallet status /wallet/status
-    pub fn wallet_status(&self) -> Result<WalletStatus> {
+    pub async fn wallet_status(&self) -> Result<WalletStatus> {
         let endpoint = "/wallet/status";
-        let res = self.send_get_req(endpoint);
-        let res_json = self.parse_response_to_json(res)?;
+        let res = self.send_get_req(endpoint).await;
+        let res_json = self.parse_response_to_json(res).await?;
 
         if let Ok(wallet_status) = from_str(&res_json.to_string()) {
             Ok(wallet_status)
@@ -167,18 +171,18 @@ impl NodeInterface {
     }
 
     /// Unlock wallet
-    pub fn wallet_unlock(&self, password: &str) -> Result<bool> {
+    pub async fn wallet_unlock(&self, password: &str) -> Result<bool> {
         let endpoint = "/wallet/unlock";
         let body = serde_json::json!({
             "pass": password
         });
 
-        let res = self.send_post_req(endpoint, body.to_string())?;
+        let res = self.send_post_req(endpoint, body.to_string()).await?;
 
         if res.status().is_success() {
             Ok(true)
         } else {
-            let json = self.parse_response_to_json(Ok(res))?;
+            let json = self.parse_response_to_json(Ok(res)).await?;
             Err(NodeError::BadRequest(json["error"].to_string()))
         }
     }
