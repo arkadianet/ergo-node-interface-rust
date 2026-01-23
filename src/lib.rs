@@ -9,8 +9,9 @@ mod types;
 pub mod wallet;
 
 pub use local_config::*;
-pub use node_interface::NodeInterface;
+pub use node_interface::{IndexedHeight, IndexerStatus, NodeError, NodeInterface, Paged, Result};
 pub use types::*;
+pub use wallet::WalletStatus;
 
 /// A Base58 encoded String of a Ergo P2PK address.
 pub type P2PKAddressString = String;

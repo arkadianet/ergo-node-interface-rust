@@ -13,15 +13,20 @@ use serde_json::json;
 impl NodeInterface {
     /// Submits a Signed Transaction provided as input as JSON
     /// to the Ergo Blockchain mempool.
-    pub fn submit_json_transaction(&self, signed_tx_json: &JsonString) -> Result<TxId> {
+    pub async fn submit_json_transaction(&self, signed_tx_json: &JsonString) -> Result<TxId> {
         let endpoint = "/transactions";
-        let res_json = self.use_json_endpoint_and_check_errors(endpoint, signed_tx_json)?;
+        let res_json = self
+            .use_json_endpoint_and_check_errors(endpoint, signed_tx_json)
+            .await?;
         let tx_id = parse_tx_id_unsafe(res_json);
         Ok(tx_id)
     }
 
     /// Sign an Unsigned Transaction which is formatted in JSON
-    pub fn sign_json_transaction(&self, unsigned_tx_string: &JsonString) -> Result<JsonValue> {
+    pub async fn sign_json_transaction(
+        &self,
+        unsigned_tx_string: &JsonString,
+    ) -> Result<JsonValue> {
         let endpoint = "/wallet/transaction/sign";
         let unsigned_tx_json: JsonValue = serde_json::from_str(unsigned_tx_string)
             .map_err(|_| NodeError::FailedParsingNodeResponse(unsigned_tx_string.to_string()))?;
@@ -30,32 +35,39 @@ impl NodeInterface {
             "tx": unsigned_tx_json
         });
 
-        let res_json =
-            self.use_json_endpoint_and_check_errors(endpoint, &prepared_body.to_string())?;
+        let res_json = self
+            .use_json_endpoint_and_check_errors(endpoint, &prepared_body.to_string())
+            .await?;
 
         Ok(res_json)
     }
 
     /// Sign an Unsigned Transaction which is formatted in JSON
     /// and then submit it to the mempool.
-    pub fn sign_and_submit_json_transaction(
+    pub async fn sign_and_submit_json_transaction(
         &self,
         unsigned_tx_string: &JsonString,
     ) -> Result<TxId> {
-        let signed_tx = self.sign_json_transaction(unsigned_tx_string)?;
+        let signed_tx = self.sign_json_transaction(unsigned_tx_string).await?;
         let signed_tx_json = serde_json::to_string(&signed_tx)
             .map_err(|_| NodeError::Other("Failed Converting `JsonValue` to string".to_string()))?;
 
-        self.submit_json_transaction(&signed_tx_json)
+        self.submit_json_transaction(&signed_tx_json).await
     }
 
     /// Submits a Signed `Transaction` provided as input
     /// to the Ergo Blockchain mempool.
-    pub fn submit_transaction(&self, signed_tx: &Transaction) -> Result<TxId> {
+    pub async fn submit_transaction(&self, signed_tx: &Transaction) -> Result<TxId> {
         let signed_tx_json = &serde_json::to_string(&signed_tx)
             .map_err(|_| NodeError::Other("Failed Converting `Transaction` to json".to_string()))?;
-        let tx_id = self.submit_json_transaction(signed_tx_json)?;
-        assert_eq!(tx_id, signed_tx.id());
+        let tx_id = self.submit_json_transaction(signed_tx_json).await?;
+        if tx_id != signed_tx.id() {
+            return Err(NodeError::Other(format!(
+                "Transaction ID mismatch: expected {}, got {}",
+                signed_tx.id(),
+                tx_id
+            )));
+        }
         Ok(tx_id)
     }
 
@@ -63,7 +75,7 @@ impl NodeInterface {
     /// unsigned_tx - The unsigned transaction to sign.
     /// boxes_to_spend - optional list of input boxes. If not provided, the node will search for the boxes in UTXO
     /// data_input_boxes - optional list of data boxes. If not provided, the node will search for the data boxes in UTXO
-    pub fn sign_transaction(
+    pub async fn sign_transaction(
         &self,
         unsigned_tx: &UnsignedTransaction,
         boxes_to_spend: Option<Vec<ErgoBox>>,
@@ -109,26 +121,35 @@ impl NodeInterface {
             "dataInputsRaw": data_input_boxes_base16,
         });
 
-        let json_signed_tx =
-            self.use_json_endpoint_and_check_errors(endpoint, &prepared_body.to_string())?;
+        let json_signed_tx = self
+            .use_json_endpoint_and_check_errors(endpoint, &prepared_body.to_string())
+            .await?;
 
         serde_json::from_value(json_signed_tx)
             .map_err(|_| NodeError::Other("Failed Converting `Transaction` from json".to_string()))
     }
 
     /// Sign an `UnsignedTransaction` and then submit it to the mempool.
-    pub fn sign_and_submit_transaction(&self, unsigned_tx: &UnsignedTransaction) -> Result<TxId> {
-        let signed_tx = self.sign_transaction(unsigned_tx, None, None)?;
-        self.submit_transaction(&signed_tx)
+    pub async fn sign_and_submit_transaction(
+        &self,
+        unsigned_tx: &UnsignedTransaction,
+    ) -> Result<TxId> {
+        let signed_tx = self.sign_transaction(unsigned_tx, None, None).await?;
+        self.submit_transaction(&signed_tx).await
     }
 
     /// Generates and submits a tx using the node endpoints. Input is
     /// a json formatted request with rawInputs (and rawDataInputs)
     /// manually selected or inputs will be automatically selected by wallet.
     /// Returns the resulting `TxId`.
-    pub fn generate_and_submit_transaction(&self, tx_request_json: &JsonString) -> Result<TxId> {
+    pub async fn generate_and_submit_transaction(
+        &self,
+        tx_request_json: &JsonString,
+    ) -> Result<TxId> {
         let endpoint = "/wallet/transaction/send";
-        let res_json = self.use_json_endpoint_and_check_errors(endpoint, tx_request_json)?;
+        let res_json = self
+            .use_json_endpoint_and_check_errors(endpoint, tx_request_json)
+            .await?;
         let tx_id = parse_tx_id_unsafe(res_json);
         Ok(tx_id)
     }
@@ -136,9 +157,14 @@ impl NodeInterface {
     /// Generates Json of an Unsigned Transaction.
     /// Input must be a json formatted request with rawInputs (and rawDataInputs)
     /// manually selected or will be automatically selected by wallet.
-    pub fn generate_json_transaction(&self, tx_request_json: &JsonString) -> Result<JsonValue> {
+    pub async fn generate_json_transaction(
+        &self,
+        tx_request_json: &JsonString,
+    ) -> Result<JsonValue> {
         let endpoint = "/wallet/transaction/generate";
-        let res_json = self.use_json_endpoint_and_check_errors(endpoint, tx_request_json)?;
+        let res_json = self
+            .use_json_endpoint_and_check_errors(endpoint, tx_request_json)
+            .await?;
 
         Ok(res_json)
     }
@@ -146,59 +172,64 @@ impl NodeInterface {
     /// Gets the recommended fee for a transaction.
     /// bytes - size of the transaction in bytes
     /// wait_time - minutes to wait for the transaction to be included in the blockchain
-    pub fn get_recommended_fee(&self, bytes: u64, wait_time: u64) -> Result<u64> {
+    pub async fn get_recommended_fee(&self, bytes: u64, wait_time: u64) -> Result<u64> {
         let endpoint = format!(
             "/transactions/getFee?bytes={}&waitTime={}",
             bytes, wait_time
         );
-        let res = self.send_get_req(&endpoint);
-        let res_json = self.parse_response_to_json(res);
-        let fee = res_json?.as_u64().unwrap();
-        Ok(fee)
+        let res = self.send_get_req(&endpoint).await;
+        let res_json = self.parse_response_to_json(res).await?;
+        res_json
+            .as_u64()
+            .ok_or_else(|| NodeError::FailedParsingNodeResponse(res_json.to_string()))
     }
 
     /// Checks a Signed Transaction provided as input as JSON
     /// without submitting it to the mempool. Returns transaction ID if valid.
-    pub fn check_json_transaction(&self, signed_tx_json: &JsonString) -> Result<TxId> {
+    pub async fn check_json_transaction(&self, signed_tx_json: &JsonString) -> Result<TxId> {
         let endpoint = "/transactions/check";
-        let res_json = self.use_json_endpoint_and_check_errors(endpoint, signed_tx_json)?;
+        let res_json = self
+            .use_json_endpoint_and_check_errors(endpoint, signed_tx_json)
+            .await?;
         let tx_id = parse_tx_id_unsafe(res_json);
         Ok(tx_id)
     }
 
     /// Checks a Signed `Transaction` provided as input
     /// without submitting it to the mempool. Returns transaction ID if valid.
-    pub fn check_transaction(&self, signed_tx: &Transaction) -> Result<TxId> {
+    pub async fn check_transaction(&self, signed_tx: &Transaction) -> Result<TxId> {
         let signed_tx_json = &serde_json::to_string(&signed_tx)
             .map_err(|_| NodeError::Other("Failed Converting `Transaction` to json".to_string()))?;
-        self.check_json_transaction(signed_tx_json)
+        self.check_json_transaction(signed_tx_json).await
     }
 
     /// Checks a transaction provided as hex-encoded bytes
     /// without submitting it to the mempool. Returns transaction ID if valid.
-    pub fn check_transaction_bytes(&self, tx_bytes_hex: &str) -> Result<TxId> {
+    pub async fn check_transaction_bytes(&self, tx_bytes_hex: &str) -> Result<TxId> {
         let endpoint = "/transactions/checkBytes";
-        let res_json =
-            self.use_json_endpoint_and_check_errors(endpoint, &tx_bytes_hex.to_string())?;
+        let res_json = self
+            .use_json_endpoint_and_check_errors(endpoint, &tx_bytes_hex.to_string())
+            .await?;
         let tx_id = parse_tx_id_unsafe(res_json);
         Ok(tx_id)
     }
 
     /// Submits a transaction provided as hex-encoded bytes
     /// to the Ergo Blockchain mempool.
-    pub fn submit_transaction_bytes(&self, tx_bytes_hex: &str) -> Result<TxId> {
+    pub async fn submit_transaction_bytes(&self, tx_bytes_hex: &str) -> Result<TxId> {
         let endpoint = "/transactions/bytes";
-        let res_json =
-            self.use_json_endpoint_and_check_errors(endpoint, &tx_bytes_hex.to_string())?;
+        let res_json = self
+            .use_json_endpoint_and_check_errors(endpoint, &tx_bytes_hex.to_string())
+            .await?;
         let tx_id = parse_tx_id_unsafe(res_json);
         Ok(tx_id)
     }
 
     /// Gets unconfirmed transactions from the mempool.
-    pub fn mempool_transactions(&self) -> Result<Vec<JsonValue>> {
+    pub async fn mempool_transactions(&self) -> Result<Vec<JsonValue>> {
         let endpoint = "/transactions/unconfirmed";
-        let res = self.send_get_req(endpoint);
-        let res_json = self.parse_response_to_json(res)?;
+        let res = self.send_get_req(endpoint).await;
+        let res_json = self.parse_response_to_json(res).await?;
 
         let mut transactions = vec![];
         for i in 0.. {
@@ -213,10 +244,10 @@ impl NodeInterface {
     }
 
     /// Gets a specific unconfirmed transaction from the mempool by transaction ID.
-    pub fn unconfirmed_transaction_by_id(&self, tx_id: &str) -> Result<JsonValue> {
+    pub async fn unconfirmed_transaction_by_id(&self, tx_id: &str) -> Result<JsonValue> {
         let endpoint = format!("/transactions/unconfirmed/byTransactionId/{}", tx_id);
-        let res = self.send_get_req(&endpoint);
-        let res_json = self.parse_response_to_json(res)?;
+        let res = self.send_get_req(&endpoint).await;
+        let res_json = self.parse_response_to_json(res).await?;
 
         Ok(res_json)
     }

@@ -11,11 +11,11 @@ use serde_json::{from_str, json, to_string_pretty, Value};
 impl NodeInterface {
     /// Registers a scan with the node and either returns the `scan_id`
     /// or an error
-    pub fn register_scan(&self, scan_json: Value) -> Result<ScanId> {
+    pub async fn register_scan(&self, scan_json: Value) -> Result<ScanId> {
         let endpoint = "/scan/register";
         let body = scan_json.to_string();
-        let res = self.send_post_req(endpoint, body);
-        let res_json = self.parse_response_to_json(res)?;
+        let res = self.send_post_req(endpoint, body).await;
+        let res_json = self.parse_response_to_json(res).await?;
 
         if res_json["error"].is_null() {
             let scan_id = res_json["scanId"].to_string().parse::<ScanId>()?;
@@ -25,11 +25,11 @@ impl NodeInterface {
         }
     }
 
-    pub fn deregister_scan(&self, scan_id: ScanId) -> Result<ScanId> {
+    pub async fn deregister_scan(&self, scan_id: ScanId) -> Result<ScanId> {
         let endpoint = "/scan/deregister";
         let body = generate_deregister_scan_json(scan_id);
-        let res = self.send_post_req(endpoint, body);
-        let res_json = self.parse_response_to_json(res)?;
+        let res = self.send_post_req(endpoint, body).await;
+        let res_json = self.parse_response_to_json(res).await?;
 
         if res_json["error"].is_null() {
             let scan_id = res_json["scanId"].to_string().parse::<ScanId>()?;
@@ -40,10 +40,10 @@ impl NodeInterface {
     }
 
     /// Using the `scan_id` of a registered scan, acquires unspent boxes which have been found by said scan
-    pub fn scan_boxes(&self, scan_id: ScanId) -> Result<Vec<ErgoBox>> {
+    pub async fn scan_boxes(&self, scan_id: ScanId) -> Result<Vec<ErgoBox>> {
         let endpoint = format!("/scan/unspentBoxes/{scan_id}");
-        let res = self.send_get_req(&endpoint);
-        let res_json = self.parse_response_to_json(res)?;
+        let res = self.send_get_req(&endpoint).await;
+        let res_json = self.parse_response_to_json(res).await?;
 
         let mut box_list = vec![];
         for i in 0.. {
@@ -65,8 +65,8 @@ impl NodeInterface {
 
     /// Using the `scan_id` of a registered scan, manually adds a box to said
     /// scan.
-    pub fn add_box_to_scan(&self, scan_id: ScanId, box_id: &String) -> Result<String> {
-        let ergo_box = serde_json::to_string(&self.box_from_id(box_id)?)
+    pub async fn add_box_to_scan(&self, scan_id: ScanId, box_id: &String) -> Result<String> {
+        let ergo_box = serde_json::to_string(&self.box_from_id(box_id).await?)
             .map_err(|_| NodeError::FailedParsingBox(box_id.clone()))?;
         let scan_id_int: u64 = scan_id.into();
         let endpoint = "/scan/addBox";
@@ -75,8 +75,8 @@ impl NodeInterface {
             "scanIds": vec![scan_id_int],
             "box": ergo_box,
         });
-        let res = self.send_post_req(endpoint, body.to_string());
-        let res_json = self.parse_response_to_json(res)?;
+        let res = self.send_post_req(endpoint, body.to_string()).await;
+        let res_json = self.parse_response_to_json(res).await?;
         if res_json["error"].is_null() {
             Ok(res_json.to_string())
         } else {
