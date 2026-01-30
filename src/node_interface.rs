@@ -600,6 +600,11 @@ impl NodeInterface {
     /// Acquires unspent boxes from the blockchain by specific address
     ///
     /// **Requires:** Node must have `extraIndex = true`.
+    ///
+    /// Note: The Ergo node's unspent endpoints do not provide a total count.
+    /// Because spent boxes are filtered client-side, the returned count may be
+    /// less than `limit` even when more boxes exist. Pagination should continue
+    /// until an empty result is returned.
     pub async fn unspent_boxes_by_address(
         &self,
         address: &P2PKAddressString,
@@ -633,6 +638,11 @@ impl NodeInterface {
     /// Acquires unspent boxes from the blockchain by specific token_id
     ///
     /// **Requires:** Node must have `extraIndex = true`.
+    ///
+    /// Note: The Ergo node's unspent endpoints do not provide a total count.
+    /// Because spent boxes are filtered client-side, the returned count may be
+    /// less than `limit` even when more boxes exist. Pagination should continue
+    /// until an empty result is returned.
     pub async fn unspent_boxes_by_token_id(
         &self,
         token_id: &TokenId,
@@ -722,20 +732,23 @@ impl NodeInterface {
         self.parse_response_to_json(res).await
     }
 
-    /// Get unspent boxes by ErgoTree. Requires extraIndex.
-    /// Returns paged results with total count.
-    /// Returns empty Paged on 404 (no results) when extraIndex is enabled.
+    /// Acquires unspent boxes from the blockchain by ErgoTree
+    ///
+    /// **Requires:** Node must have `extraIndex = true`.
     ///
     /// Note: Filters out boxes with non-null `spentTransactionId` due to a known
-    /// node indexer bug that can return spent boxes. The `total` count reflects
-    /// the server's count (before filtering), so `items.len()` may be less than
-    /// what pagination suggests.
+    /// node indexer bug that can return spent boxes.
+    ///
+    /// Note: The Ergo node's unspent endpoints do not provide a total count.
+    /// Because spent boxes are filtered client-side, the returned count may be
+    /// less than `limit` even when more boxes exist. Pagination should continue
+    /// until an empty result is returned.
     pub async fn unspent_boxes_by_ergo_tree(
         &self,
         ergo_tree: &str,
         offset: u64,
         limit: u64,
-    ) -> Result<Paged<ErgoBox>> {
+    ) -> Result<Vec<ErgoBox>> {
         self.require_extra_index()?;
         let endpoint = format!(
             "/blockchain/box/unspent/byErgoTree?offset={}&limit={}",
@@ -743,13 +756,10 @@ impl NodeInterface {
         );
         let response = self.send_post_req(&endpoint, ergo_tree.to_string()).await?;
 
-        // Capture status before consuming response (avoids !Send issue)
+        // Handle 404 (no results) - return empty vec
         let status = response.status();
         if self.handle_paged_404(status).await? {
-            return Ok(Paged {
-                items: vec![],
-                total: 0,
-            });
+            return Ok(vec![]);
         }
 
         let text = response.text().await.map_err(|_| {
@@ -758,25 +768,20 @@ impl NodeInterface {
         let res_json: JsonValue = serde_json::from_str(&text)
             .map_err(|_| NodeError::FailedParsingNodeResponse(text.clone()))?;
 
-        let total = res_json["total"].as_u64().ok_or_else(|| {
-            NodeError::FailedParsingNodeResponse(format!("Missing 'total' field: {}", res_json))
-        })?;
-        let items_arr = res_json["items"].as_array().ok_or_else(|| {
-            NodeError::FailedParsingNodeResponse(format!("Missing 'items' array: {}", res_json))
-        })?;
+        let mut box_list = vec![];
 
-        let mut items = Vec::with_capacity(items_arr.len());
-        for item in items_arr {
-            // Filter out spent boxes due to node indexer bug that returns some spent boxes as unspent
-            if !item["spentTransactionId"].is_null() {
-                continue;
+        for i in 0.. {
+            let box_json = &res_json[i];
+            if box_json.is_null() {
+                break;
+            } else if let Ok(ergo_box) = from_str(&box_json.to_string()) {
+                // Filter out spent boxes due to node indexer bug that returns some spent boxes as unspent
+                if box_json["spentTransactionId"].is_null() {
+                    box_list.push(ergo_box);
+                }
             }
-            let ergo_box: ErgoBox = from_str(&item.to_string())
-                .map_err(|_| NodeError::FailedParsingBox(item.to_string()))?;
-            items.push(ergo_box);
         }
-
-        Ok(Paged { items, total })
+        Ok(box_list)
     }
 
     /// Get boxes by address (including spent). Requires extraIndex.
@@ -1431,7 +1436,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_paged_unspent_boxes_by_ergo_tree() {
+    async fn test_unspent_boxes_by_ergo_tree() {
         let mock_server = MockServer::start().await;
 
         Mock::given(method("GET"))
@@ -1444,33 +1449,30 @@ mod tests {
             .mount(&mock_server)
             .await;
 
+        // Ergo node unspent endpoints return raw arrays (no items/total wrapper)
         Mock::given(method("POST"))
             .and(path("/blockchain/box/unspent/byErgoTree"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "items": [{
-                    "boxId": VALID_BOX_ID,
-                    "value": 1000000000u64,
-                    "ergoTree": VALID_ERGO_TREE,
-                    "creationHeight": 100,
-                    "assets": [],
-                    "additionalRegisters": {},
-                    "transactionId": VALID_TX_ID,
-                    "index": 0
-                }],
-                "total": 3
-            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([{
+                "boxId": VALID_BOX_ID,
+                "value": 1000000000u64,
+                "ergoTree": VALID_ERGO_TREE,
+                "creationHeight": 100,
+                "assets": [],
+                "additionalRegisters": {},
+                "transactionId": VALID_TX_ID,
+                "index": 0
+            }])))
             .mount(&mock_server)
             .await;
 
         let node = NodeInterface::from_url_str("", &mock_server.uri())
             .await
             .unwrap();
-        let paged = node
+        let boxes = node
             .unspent_boxes_by_ergo_tree(VALID_ERGO_TREE, 0, 10)
             .await
             .unwrap();
-        assert_eq!(paged.total, 3);
-        assert_eq!(paged.items.len(), 1);
+        assert_eq!(boxes.len(), 1);
     }
 
     #[tokio::test]
@@ -1500,13 +1502,12 @@ mod tests {
             .unwrap();
         assert_eq!(node.has_extra_index(), Some(true));
 
-        // 404 should return empty Paged, not an error
+        // 404 should return empty Vec, not an error
         let result = node
             .unspent_boxes_by_ergo_tree(VALID_ERGO_TREE, 0, 10)
             .await
             .unwrap();
-        assert_eq!(result.items.len(), 0);
-        assert_eq!(result.total, 0);
+        assert!(result.is_empty());
     }
 
     #[tokio::test]
@@ -1526,51 +1527,47 @@ mod tests {
             .await;
 
         // Response includes one unspent box and one spent box (indexer bug)
-        // Use valid boxIds that match the box content
+        // Raw array format (no items/total wrapper)
         Mock::given(method("POST"))
             .and(path("/blockchain/box/unspent/byErgoTree"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "items": [
-                    {
-                        "boxId": VALID_BOX_ID,  // Unspent box
-                        "value": 1000000000u64,
-                        "ergoTree": VALID_ERGO_TREE,
-                        "creationHeight": 100,
-                        "assets": [],
-                        "additionalRegisters": {},
-                        "transactionId": VALID_TX_ID,
-                        "index": 0,
-                        "spentTransactionId": serde_json::Value::Null  // Truly unspent
-                    },
-                    {
-                        "boxId": VALID_BOX_ID_2,  // Spent box (different content hash)
-                        "value": 500000000u64,
-                        "ergoTree": VALID_ERGO_TREE,
-                        "creationHeight": 50,
-                        "assets": [],
-                        "additionalRegisters": {},
-                        "transactionId": VALID_TX_ID_2,
-                        "index": 0,
-                        "spentTransactionId": spent_tx_id  // Spent but returned due to indexer bug
-                    }
-                ],
-                "total": 2  // Server reports 2, but we filter to 1
-            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                {
+                    "boxId": VALID_BOX_ID,  // Unspent box
+                    "value": 1000000000u64,
+                    "ergoTree": VALID_ERGO_TREE,
+                    "creationHeight": 100,
+                    "assets": [],
+                    "additionalRegisters": {},
+                    "transactionId": VALID_TX_ID,
+                    "index": 0,
+                    "spentTransactionId": serde_json::Value::Null  // Truly unspent
+                },
+                {
+                    "boxId": VALID_BOX_ID_2,  // Spent box (different content hash)
+                    "value": 500000000u64,
+                    "ergoTree": VALID_ERGO_TREE,
+                    "creationHeight": 50,
+                    "assets": [],
+                    "additionalRegisters": {},
+                    "transactionId": VALID_TX_ID_2,
+                    "index": 0,
+                    "spentTransactionId": spent_tx_id  // Spent but returned due to indexer bug
+                }
+            ])))
             .mount(&mock_server)
             .await;
 
         let node = NodeInterface::from_url_str("", &mock_server.uri())
             .await
             .unwrap();
-        let paged = node
+        let boxes = node
             .unspent_boxes_by_ergo_tree(VALID_ERGO_TREE, 0, 10)
             .await
             .unwrap();
 
-        // total reflects server count (before filter), items filtered client-side
-        assert_eq!(paged.total, 2);
-        assert_eq!(paged.items.len(), 1); // Only unspent box included
-        let box_id_str: String = paged.items[0].box_id().into();
+        // Only unspent box should be included (spent box filtered out)
+        assert_eq!(boxes.len(), 1);
+        let box_id_str: String = boxes[0].box_id().into();
         assert_eq!(box_id_str, VALID_BOX_ID);
     }
 
