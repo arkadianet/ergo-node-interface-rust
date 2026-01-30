@@ -601,9 +601,10 @@ impl NodeInterface {
     ///
     /// **Requires:** Node must have `extraIndex = true`.
     ///
-    /// Note: The Ergo node's unspent endpoints do not provide a total count,
-    /// so pagination must be done by requesting pages until fewer than `limit`
-    /// items are returned.
+    /// Note: The Ergo node's unspent endpoints do not provide a total count.
+    /// Because spent boxes are filtered client-side, the returned count may be
+    /// less than `limit` even when more boxes exist. Pagination should continue
+    /// until an empty result is returned.
     pub async fn unspent_boxes_by_address(
         &self,
         address: &P2PKAddressString,
@@ -638,9 +639,10 @@ impl NodeInterface {
     ///
     /// **Requires:** Node must have `extraIndex = true`.
     ///
-    /// Note: The Ergo node's unspent endpoints do not provide a total count,
-    /// so pagination must be done by requesting pages until fewer than `limit`
-    /// items are returned.
+    /// Note: The Ergo node's unspent endpoints do not provide a total count.
+    /// Because spent boxes are filtered client-side, the returned count may be
+    /// less than `limit` even when more boxes exist. Pagination should continue
+    /// until an empty result is returned.
     pub async fn unspent_boxes_by_token_id(
         &self,
         token_id: &TokenId,
@@ -737,9 +739,10 @@ impl NodeInterface {
     /// Note: Filters out boxes with non-null `spentTransactionId` due to a known
     /// node indexer bug that can return spent boxes.
     ///
-    /// Note: The Ergo node's unspent endpoints do not provide a total count,
-    /// so pagination must be done by requesting pages until fewer than `limit`
-    /// items are returned.
+    /// Note: The Ergo node's unspent endpoints do not provide a total count.
+    /// Because spent boxes are filtered client-side, the returned count may be
+    /// less than `limit` even when more boxes exist. Pagination should continue
+    /// until an empty result is returned.
     pub async fn unspent_boxes_by_ergo_tree(
         &self,
         ergo_tree: &str,
@@ -751,8 +754,19 @@ impl NodeInterface {
             "/blockchain/box/unspent/byErgoTree?offset={}&limit={}",
             offset, limit
         );
-        let res = self.send_post_req(&endpoint, ergo_tree.to_string()).await;
-        let res_json = self.parse_response_to_json(res).await?;
+        let response = self.send_post_req(&endpoint, ergo_tree.to_string()).await?;
+
+        // Handle 404 (no results) - return empty vec
+        let status = response.status();
+        if self.handle_paged_404(status).await? {
+            return Ok(vec![]);
+        }
+
+        let text = response.text().await.map_err(|_| {
+            NodeError::FailedParsingNodeResponse("Response not parseable into text".to_string())
+        })?;
+        let res_json: JsonValue = serde_json::from_str(&text)
+            .map_err(|_| NodeError::FailedParsingNodeResponse(text.clone()))?;
 
         let mut box_list = vec![];
 
@@ -1462,9 +1476,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_unspent_boxes_by_ergo_tree_empty_result() {
+    async fn test_unspent_boxes_by_ergo_tree_404_returns_empty() {
         let mock_server = MockServer::start().await;
 
+        // Probe returns 200 -> extraIndex enabled
         Mock::given(method("GET"))
             .and(path("/blockchain/indexedHeight"))
             .respond_with(
@@ -1475,17 +1490,19 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        // Empty array response
+        // Search endpoint returns 404 (no results found)
         Mock::given(method("POST"))
             .and(path("/blockchain/box/unspent/byErgoTree"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([])))
+            .respond_with(ResponseTemplate::new(404))
             .mount(&mock_server)
             .await;
 
         let node = NodeInterface::from_url_str("", &mock_server.uri())
             .await
             .unwrap();
+        assert_eq!(node.has_extra_index(), Some(true));
 
+        // 404 should return empty Vec, not an error
         let result = node
             .unspent_boxes_by_ergo_tree(VALID_ERGO_TREE, 0, 10)
             .await

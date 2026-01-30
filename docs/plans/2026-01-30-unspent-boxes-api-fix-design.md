@@ -85,10 +85,17 @@ pub async fn unspent_boxes_by_ergo_tree(
 Add to all three unspent functions:
 
 ```rust
-/// Note: The Ergo node's unspent endpoints do not provide a total count,
-/// so pagination must be done by requesting pages until fewer than `limit`
-/// items are returned.
+/// Note: The Ergo node's unspent endpoints do not provide a total count.
+/// Because spent boxes are filtered client-side, the returned count may be
+/// less than `limit` even when more boxes exist. Pagination should continue
+/// until an empty result is returned.
 ```
+
+## Review Feedback (Post-Implementation)
+
+1. **404 handling restored**: Added `handle_paged_404` check before JSON parsing to properly handle 404 responses (return empty Vec when extraIndex is enabled).
+
+2. **Pagination guidance corrected**: Updated docs to clarify that pagination should continue until empty result, not until `len() < limit`, because client-side spent box filtering can reduce the count.
 
 ## Files to Modify
 
