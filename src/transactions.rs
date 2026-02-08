@@ -251,6 +251,109 @@ impl NodeInterface {
 
         Ok(res_json)
     }
+
+    /// Finds unconfirmed transactions by ErgoTree hex of one of its output or
+    /// input boxes (if present in UtxoState).
+    ///
+    /// This is the key method for getting mempool transactions related to a
+    /// specific address. Convert an address to its ErgoTree hex first, then
+    /// pass it here.
+    pub async fn unconfirmed_transactions_by_ergo_tree(
+        &self,
+        ergo_tree_hex: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Vec<JsonValue>> {
+        let endpoint = format!(
+            "/transactions/unconfirmed/byErgoTree?offset={}&limit={}",
+            offset, limit
+        );
+        let res = self.send_post_req(&endpoint, ergo_tree_hex.to_string()).await;
+        let res_json = self.parse_response_to_json(res).await?;
+
+        let mut transactions = vec![];
+        for i in 0.. {
+            let tx_json = &res_json[i];
+            if tx_json.is_null() {
+                break;
+            } else {
+                transactions.push(tx_json.clone());
+            }
+        }
+        Ok(transactions)
+    }
+
+    /// Get an input box from unconfirmed transactions in the mempool by box ID.
+    ///
+    /// Returns the box that is being spent by an unconfirmed transaction.
+    pub async fn unconfirmed_input_by_box_id(&self, box_id: &str) -> Result<JsonValue> {
+        let endpoint = format!("/transactions/unconfirmed/inputs/byBoxId/{}", box_id);
+        let res = self.send_get_req(&endpoint).await;
+        let res_json = self.parse_response_to_json(res).await?;
+
+        Ok(res_json)
+    }
+
+    /// Get an output box from unconfirmed transactions in the mempool by box ID.
+    ///
+    /// Returns the box that is being created by an unconfirmed transaction.
+    pub async fn unconfirmed_output_by_box_id(&self, box_id: &str) -> Result<JsonValue> {
+        let endpoint = format!("/transactions/unconfirmed/outputs/byBoxId/{}", box_id);
+        let res = self.send_get_req(&endpoint).await;
+        let res_json = self.parse_response_to_json(res).await?;
+
+        Ok(res_json)
+    }
+
+    /// Finds all output boxes by ErgoTree hex among unconfirmed transactions.
+    ///
+    /// Useful for finding pending outputs destined to a specific address
+    /// (by its ErgoTree representation).
+    pub async fn unconfirmed_outputs_by_ergo_tree(
+        &self,
+        ergo_tree_hex: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Vec<JsonValue>> {
+        let endpoint = format!(
+            "/transactions/unconfirmed/outputs/byErgoTree?offset={}&limit={}",
+            offset, limit
+        );
+        let res = self.send_post_req(&endpoint, ergo_tree_hex.to_string()).await;
+        let res_json = self.parse_response_to_json(res).await?;
+
+        let mut outputs = vec![];
+        for i in 0.. {
+            let box_json = &res_json[i];
+            if box_json.is_null() {
+                break;
+            } else {
+                outputs.push(box_json.clone());
+            }
+        }
+        Ok(outputs)
+    }
+
+    /// Get output boxes from unconfirmed transactions that contain a given token.
+    pub async fn unconfirmed_outputs_by_token_id(
+        &self,
+        token_id: &str,
+    ) -> Result<Vec<JsonValue>> {
+        let endpoint = format!("/transactions/unconfirmed/outputs/byTokenId/{}", token_id);
+        let res = self.send_get_req(&endpoint).await;
+        let res_json = self.parse_response_to_json(res).await?;
+
+        let mut outputs = vec![];
+        for i in 0.. {
+            let box_json = &res_json[i];
+            if box_json.is_null() {
+                break;
+            } else {
+                outputs.push(box_json.clone());
+            }
+        }
+        Ok(outputs)
+    }
 }
 
 fn parse_tx_id_unsafe(res_json: JsonValue) -> TxId {
